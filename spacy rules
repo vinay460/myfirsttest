@@ -1,0 +1,73 @@
+import spacy
+from spacy import displacy
+from collections import Counter
+import en_core_web_md
+nlp = en_core_web_md.load()
+import pycountry
+
+import pycountry
+
+def Data_Countries(value):
+    try:
+        if pycountry.countries.lookup(value):
+            return True
+        else:
+            return False
+    except:
+        return False
+
+def Data_Regions(value):
+    try:
+        if pycountry.subdivisions.lookup(value):
+            return True
+        else:
+            return False
+    except:
+        return False
+    
+def Data_City(value):
+    doc = nlp(value)
+    k=[( X.label_) for X in doc.ents]
+    c=countries(value)
+    r=Regions(value)
+    try:
+        if k==['GPE'] and c==False and r==False:
+            return True
+        else:
+            return False
+    except:
+        return False
+    
+        
+def Data_Locality(value):
+    doc = nlp(value)
+    k=[( X.label_) for X in doc.ents]
+    try:
+        if k==['GPE']:
+            return True
+        else:
+            return False
+    except:
+        return False
+    
+def Data_Person(value):
+    doc = nlp(value)
+    k=[( X.label_) for X in doc.ents]
+    try:
+        if k==['PER']:
+            return True
+        else:
+            return False
+    except:
+        return False
+    
+def Data_Company(value):
+    doc = nlp(value)
+    k=[( X.label_) for X in doc.ents]
+    try:
+        if k==['LOC']:
+            return True
+        else:
+            return False
+    except:
+        return False
