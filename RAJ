@@ -1,0 +1,11 @@
+df_M=pd.DataFrame(list(df.columns))
+df_M['id']=df_M.index
+df_M.rename(columns={0:'columnname'},inplace=True)
+df_M
+
+df2=df.stack().reset_index()
+df2.rename(columns={'level_1':'columns',0:'values'},inplace=True)
+df3=df2[['columns','values']]
+df4=pd.merge(df3,df_M, left_on='columns', right_on='columnname')
+df_dr=df4[['id','values']]
+df_dr
