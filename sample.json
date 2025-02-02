@@ -1,0 +1,410 @@
+Certainly! I'll update both the **Flask code** and the **Swagger API 3.0 schema** to include the **delete lineage** functionality. This will allow you to delete a lineage record by its `id`.
+
+---
+
+### Updated Flask Code
+
+#### Add the `DELETE` Endpoint for Lineage
+
+In `app.py`, add the following endpoint to delete a lineage record:
+
+```python
+@app.route('/lineage/<int:id>', methods=['DELETE'])
+def delete_lineage(id):
+    """
+    Delete Lineage by ID
+    ---
+    tags:
+      - Lineage
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    responses:
+      200:
+        description: Lineage deleted
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  example: Lineage deleted
+      404:
+        description: Lineage not found
+    """
+    lineage = Lineage.query.get_or_404(id)
+    db.session.delete(lineage)
+    db.session.commit()
+    return jsonify({"message": "Lineage deleted"}), 200
+```
+
+---
+
+### Updated Swagger API 3.0 Schema
+
+Add the `DELETE` endpoint for lineage in the Swagger schema:
+
+```yaml
+paths:
+  /lineage/{id}:
+    delete:
+      summary: Delete lineage by ID
+      tags:
+        - Lineage
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Lineage deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Lineage deleted
+        '404':
+          description: Lineage not found
+```
+
+---
+
+### Full Updated Swagger Schema
+
+Here’s the complete Swagger schema with the `DELETE` lineage endpoint:
+
+```yaml
+openapi: 3.0.0
+info:
+  title: Metadata and Lineage API
+  description: API for managing metadata and lineage with CRUD operations
+  version: 1.0.0
+servers:
+  - url: http://localhost:5000
+    description: Local development server
+paths:
+  /metadata:
+    post:
+      summary: Create metadata with columns
+      tags:
+        - Metadata
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MetadataRequest'
+      responses:
+        '201':
+          description: Metadata and columns created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Metadata and columns created
+    get:
+      summary: Get all metadata
+      tags:
+        - Metadata
+      responses:
+        '200':
+          description: List of metadata
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MetadataResponse'
+  /metadata/{bri}:
+    get:
+      summary: Get metadata by BRI
+      tags:
+        - Metadata
+      parameters:
+        - name: bri
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Metadata and columns retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetadataResponse'
+        '404':
+          description: Metadata not found
+    put:
+      summary: Update metadata by BRI
+      tags:
+        - Metadata
+      parameters:
+        - name: bri
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MetadataRequest'
+      responses:
+        '200':
+          description: Metadata and columns updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Metadata and columns updated
+    delete:
+      summary: Delete metadata by BRI
+      tags:
+        - Metadata
+      parameters:
+        - name: bri
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Metadata and columns deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Metadata and columns deleted
+  /lineage:
+    post:
+      summary: Create lineage
+      tags:
+        - Lineage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LineageRequest'
+      responses:
+        '201':
+          description: Lineage created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Lineage created
+    get:
+      summary: Get all lineage
+      tags:
+        - Lineage
+      responses:
+        '200':
+          description: List of lineage
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LineageResponse'
+  /lineage/{input_bri}:
+    get:
+      summary: Get recursive lineage by input BRI
+      tags:
+        - Lineage
+      parameters:
+        - name: input_bri
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Recursive lineage retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LineageResponse'
+  /lineage/{id}:
+    delete:
+      summary: Delete lineage by ID
+      tags:
+        - Lineage
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Lineage deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Lineage deleted
+        '404':
+          description: Lineage not found
+components:
+  schemas:
+    MetadataRequest:
+      type: object
+      required:
+        - bri
+        - type
+        - location
+        - description
+        - tag
+        - columns
+      properties:
+        bri:
+          type: string
+          description: BRI identifier
+          example: bri_123
+        type:
+          type: string
+          description: Type of metadata
+          example: table
+        location:
+          type: string
+          description: Location of metadata
+          example: s3://bucket/path
+        description:
+          type: string
+          description: Description of metadata
+          example: Sample table
+        tag:
+          type: string
+          description: Tag associated with metadata
+          example: sample
+        columns:
+          type: array
+          items:
+            $ref: '#/components/schemas/Column'
+    MetadataResponse:
+      type: object
+      properties:
+        bri:
+          type: string
+          example: bri_123
+        type:
+          type: string
+          example: table
+        location:
+          type: string
+          example: s3://bucket/path
+        description:
+          type: string
+          example: Sample table
+        tag:
+          type: string
+          example: sample
+        columns:
+          type: array
+          items:
+            $ref: '#/components/schemas/Column'
+    Column:
+      type: object
+      properties:
+        name:
+          type: string
+          example: col1
+        data_type:
+          type: string
+          example: string
+        description:
+          type: string
+          example: First column
+        tags:
+          type: string
+          example: tag1
+    LineageRequest:
+      type: object
+      required:
+        - input_bri
+        - output_bri
+        - movement_type
+        - relationship_level
+      properties:
+        input_bri:
+          type: string
+          description: Input BRI identifier
+          example: bri_123
+        output_bri:
+          type: string
+          description: Output BRI identifier
+          example: bri_456
+        movement_type:
+          type: string
+          description: Type of movement (e.g., copy, transform)
+          example: transform
+        relationship_level:
+          type: integer
+          description: Level of relationship (e.g., 1 for direct, 2 for indirect)
+          example: 1
+    LineageResponse:
+      type: object
+      properties:
+        input_bri:
+          type: string
+          example: bri_123
+        output_bri:
+          type: string
+          example: bri_456
+        movement_type:
+          type: string
+          example: transform
+        relationship_level:
+          type: integer
+          example: 1
+```
+
+---
+
+### Example Request and Response for Deleting Lineage
+
+#### **DELETE /lineage/1**
+Request:
+```
+DELETE /lineage/1
+```
+
+Response:
+```json
+{
+  "message": "Lineage deleted"
+}
+```
+
+---
+
+This update adds the ability to delete lineage records by their `id`. The Swagger schema and Flask code are now fully aligned with this functionality. Let me know if you need further assistance!
