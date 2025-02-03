@@ -1,0 +1,244 @@
+To extract metadata from **Hive**, **PostgreSQL**, and **Trino**, and load it into a PostgreSQL table, we need to integrate multiple data sources into a single PySpark application. Below is the Python code that accomplishes this:
+
+---
+
+### Key Features of the Code:
+1. **Extract Metadata from Hive**:
+   - Extracts database, table, column, data type, and view/dependent table information.
+
+2. **Extract Metadata from PostgreSQL**:
+   - Extracts database, table, column, and data type information using the `information_schema`.
+
+3. **Extract Metadata from Trino**:
+   - Extracts database, table, column, and data type information using Trino's `information_schema`.
+
+4. **Load Metadata into PostgreSQL**:
+   - Combines metadata from all sources into a single DataFrame and writes it to a PostgreSQL table.
+
+---
+
+### Prerequisites
+
+1. **Install Required Libraries**:
+   ```bash
+   pip install pyspark psycopg2-binary trino
+   ```
+
+2. **Download JDBC Drivers**:
+   - Download the PostgreSQL JDBC driver (`postgresql-42.x.x.jar`).
+   - Download the Trino JDBC driver (`trino-jdbc-xxx.jar`).
+   - Place these JAR files in a directory accessible to PySpark.
+
+3. **PostgreSQL Table**:
+   - Create a table in PostgreSQL to store the metadata:
+     ```sql
+     CREATE TABLE unified_metadata (
+         source_type VARCHAR(50),
+         database_name VARCHAR(255),
+         schema_name VARCHAR(255),
+         table_name VARCHAR(255),
+         column_name VARCHAR(255),
+         data_type VARCHAR(255),
+         is_nullable VARCHAR(10),
+         is_partitioned VARCHAR(10),
+         is_view VARCHAR(10),
+         dependent_tables VARCHAR(255)
+     );
+     ```
+
+---
+
+### Python Code
+
+```python
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import lit
+import trino
+
+# Initialize Spark session with Hive support
+spark = SparkSession.builder \
+    .appName("Unified Metadata Extraction") \
+    .enableHiveSupport() \
+    .config("spark.jars", "path/to/postgresql-42.x.x.jar,path/to/trino-jdbc-xxx.jar") \
+    .getOrCreate()
+
+# Function to extract Hive metadata
+def extract_hive_metadata():
+    databases = spark.sql("SHOW DATABASES").collect()
+    metadata_list = []
+    
+    for db in databases:
+        database_name = db["databaseName"]
+        spark.sql(f"USE {database_name}")
+        tables = spark.sql("SHOW TABLES").collect()
+        
+        for table in tables:
+            table_name = table["tableName"]
+            is_view = table["isTemporary"]
+            description = spark.sql(f"DESCRIBE FORMATTED {table_name}").collect()
+            description_text = [row["col_name"] for row in description]
+            dependent_tables = extract_dependent_tables(description_text) if is_view else None
+            
+            columns = spark.sql(f"DESCRIBE {table_name}").collect()
+            for column in columns:
+                col_name = column["col_name"]
+                data_type = column["data_type"]
+                is_nullable = "YES" if "nullable" in str(column).lower() else "NO"
+                is_partitioned = "YES" if "partition" in str(column).lower() else "NO"
+                
+                metadata_list.append((
+                    "Hive", database_name, None, table_name, col_name, data_type,
+                    is_nullable, is_partitioned, "YES" if is_view else "NO", dependent_tables
+                ))
+    
+    return spark.createDataFrame(metadata_list, [
+        "source_type", "database_name", "schema_name", "table_name", "column_name",
+        "data_type", "is_nullable", "is_partitioned", "is_view", "dependent_tables"
+    ])
+
+# Function to extract PostgreSQL metadata
+def extract_postgres_metadata():
+    postgres_url = "jdbc:postgresql://<postgres_host>:<postgres_port>/<database>"
+    postgres_properties = {
+        "user": "<postgres_username>",
+        "password": "<postgres_password>",
+        "driver": "org.postgresql.Driver"
+    }
+    
+    query = """
+        SELECT 
+            'PostgreSQL' AS source_type,
+            table_catalog AS database_name,
+            table_schema AS schema_name,
+            table_name,
+            column_name,
+            data_type,
+            is_nullable,
+            'NO' AS is_partitioned,
+            'NO' AS is_view,
+            NULL AS dependent_tables
+        FROM information_schema.columns
+    """
+    
+    return spark.read.jdbc(url=postgres_url, table=f"({query}) AS metadata", properties=postgres_properties)
+
+# Function to extract Trino metadata
+def extract_trino_metadata():
+    conn = trino.dbapi.connect(
+        host="<trino_host>",
+        port=<trino_port>,
+        user="<trino_username>",
+        catalog="<trino_catalog>",
+        schema="<trino_schema>"
+    )
+    cur = conn.cursor()
+    
+    query = """
+        SELECT 
+            'Trino' AS source_type,
+            table_catalog AS database_name,
+            table_schema AS schema_name,
+            table_name,
+            column_name,
+            data_type,
+            is_nullable,
+            'NO' AS is_partitioned,
+            'NO' AS is_view,
+            NULL AS dependent_tables
+        FROM information_schema.columns
+    """
+    cur.execute(query)
+    rows = cur.fetchall()
+    
+    return spark.createDataFrame(rows, [
+        "source_type", "database_name", "schema_name", "table_name", "column_name",
+        "data_type", "is_nullable", "is_partitioned", "is_view", "dependent_tables"
+    ])
+
+# Function to extract dependent tables from view description
+def extract_dependent_tables(description):
+    dependent_tables = []
+    for line in description:
+        if "View Original Text" in line:
+            import re
+            matches = re.findall(r"`([^`]+)\.([^`]+)`", line)
+            for match in matches:
+                dependent_tables.append(f"{match[0]}.{match[1]}")
+    return ", ".join(dependent_tables) if dependent_tables else None
+
+# Extract metadata from all sources
+hive_metadata = extract_hive_metadata()
+postgres_metadata = extract_postgres_metadata()
+trino_metadata = extract_trino_metadata()
+
+# Combine metadata into a single DataFrame
+unified_metadata = hive_metadata.union(postgres_metadata).union(trino_metadata)
+
+# Show the combined metadata
+unified_metadata.show(truncate=False)
+
+# Write metadata to PostgreSQL table
+postgres_url = "jdbc:postgresql://<postgres_host>:<postgres_port>/<database>"
+postgres_properties = {
+    "user": "<postgres_username>",
+    "password": "<postgres_password>",
+    "driver": "org.postgresql.Driver"
+}
+
+unified_metadata.write \
+    .jdbc(url=postgres_url, table="unified_metadata", mode="overwrite", properties=postgres_properties)
+
+# Stop the Spark session
+spark.stop()
+```
+
+---
+
+### Explanation of the Code
+
+1. **Hive Metadata Extraction**:
+   - Uses PySpark's Hive support to extract metadata.
+   - Includes views and dependent tables.
+
+2. **PostgreSQL Metadata Extraction**:
+   - Uses the `information_schema.columns` table to extract metadata.
+   - Connects to PostgreSQL using the JDBC driver.
+
+3. **Trino Metadata Extraction**:
+   - Uses Trino's `information_schema.columns` table to extract metadata.
+   - Connects to Trino using the `trino` Python library.
+
+4. **Combining Metadata**:
+   - Combines metadata from all sources into a single DataFrame.
+
+5. **Loading into PostgreSQL**:
+   - Writes the combined metadata to a PostgreSQL table.
+
+---
+
+### Example Output in PostgreSQL
+
+| source_type | database_name | schema_name | table_name      | column_name | data_type | is_nullable | is_partitioned | is_view | dependent_tables          |
+|-------------|---------------|-------------|-----------------|-------------|-----------|-------------|----------------|---------|---------------------------|
+| Hive        | default       | NULL        | my_table        | id          | int       | NO          | NO             | NO      | NULL                      |
+| Hive        | sales         | NULL        | order_summary   | order_id    | int       | NO          | NO             | YES     | sales.orders, sales.items |
+| PostgreSQL  | my_db         | public      | customers       | customer_id | int       | NO          | NO             | NO      | NULL                      |
+| Trino       | my_catalog    | my_schema   | transactions    | amount      | double    | YES         | NO             | NO      | NULL                      |
+
+---
+
+### Steps to Run the Code
+
+1. **Replace Placeholders**:
+   - Replace `<postgres_host>`, `<postgres_port>`, `<database>`, `<postgres_username>`, and `<postgres_password>` with your PostgreSQL connection details.
+   - Replace `<trino_host>`, `<trino_port>`, `<trino_username>`, `<trino_catalog>`, and `<trino_schema>` with your Trino connection details.
+
+2. **Run the Script**:
+   - Execute the script in a PySpark environment.
+
+3. **Verify Data in PostgreSQL**:
+   - Query the `unified_metadata` table in PostgreSQL to verify that the metadata from all sources has been loaded.
+
+---
+
+This code provides a unified solution for extracting metadata from Hive, PostgreSQL, and Trino, and loading it into a single PostgreSQL table for centralized metadata management.
