@@ -1,4 +1,65 @@
 from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, schema_of_json
+import json
+
+# Initialize Spark session with Hive support
+spark = SparkSession.builder \
+    .appName("GenerateConfigJSON") \
+    .enableHiveSupport() \  # Enable Hive support
+    .getOrCreate()
+
+# Step 1: Read the main data from the Hive table
+hive_table_df = spark.sql("""
+    SELECT
+        workflow_id,
+        activity,
+        activity_status,
+        activity_completion_time,
+        activity_parent,
+        activity_out
+    FROM your_hive_table
+""")
+
+# Step 2: Read distinct activities from the Hive table
+activities_df = spark.sql("SELECT DISTINCT activity FROM your_hive_table")
+unique_activities = [row["activity"] for row in activities_df.collect()]
+
+# Step 3: Function to extract fields from JSON for a given activity
+def extract_json_fields(activity):
+    # Filter rows for the current activity
+    activity_df = hive_table_df.filter(col("activity") == activity)
+    
+    # Infer schema from the first non-null JSON string
+    sample_json = activity_df.select("activity_out").filter(col("activity_out").isNotNull()).first()[0]
+    if sample_json:
+        schema = schema_of_json(sample_json)
+        return schema.jsonValue()["fields"]
+    else:
+        return []
+
+# Step 4: Generate activity_fields dictionary
+activity_fields = {}
+for activity in unique_activities:
+    fields = extract_json_fields(activity)
+    field_names = [field["name"] for field in fields]
+    activity_fields[activity] = field_names
+
+# Step 5: Create the config dictionary
+config = {"activity_fields": activity_fields}
+
+# Step 6: Write to config.json
+with open("config.json", "w") as config_file:
+    json.dump(config, config_file, indent=4)
+
+# Stop the Spark session
+spark.stop()
+
+
+
+******************
+
+
+from pyspark.sql import SparkSession
 from pyspark.sql.functions import lower, coalesce, from_json, col, expr, lit
 from pyspark.sql.types import StructType, StructField, StringType
 import json
