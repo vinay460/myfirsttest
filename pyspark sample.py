@@ -1,29 +1,46 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import from_json, col, expr, lit
+from pyspark.sql.functions import lower, coalesce, from_json, col, expr, lit
 from pyspark.sql.types import StructType, StructField, StringType
 import json
 
-# Initialize Spark session
+# Initialize Spark session with Hive support
 spark = SparkSession.builder \
-    .appName("Dynamic JSON Parsing with Additional Fields") \
-    .enableHiveSupport() \
+    .appName("StandardizeColumnAndDynamicJSONParsing") \
+    .enableHiveSupport() \  # Enable Hive support
     .getOrCreate()
 
-# Load the configuration JSON file
+# Load the configuration JSON file for dynamic JSON parsing
 with open("config.json", "r") as config_file:
     config = json.load(config_file)
 
-# Read the Hive table into a DataFrame
+# Read the config data for standardization from the Hive table
+config_df = spark.sql("SELECT input_value, standardized_value FROM config_table")
+
+# Read the main data from the Hive table
 hive_table_df = spark.sql("""
-    SELECT 
-        workflow_id, 
-        activity, 
-        activity_status, 
-        activity_completion_time, 
-        activity_parent, 
-        activity_out 
+    SELECT
+        workflow_id,
+        activity,
+        activity_status,
+        activity_completion_time,
+        activity_parent,
+        activity_out
     FROM your_hive_table
 """)
+
+# Standardize the 'activity' column using the config DataFrame
+standardized_df = hive_table_df.join(
+    config_df,
+    lower(hive_table_df["activity"]) == lower(config_df["input_value"]),
+    "left"
+).select(
+    coalesce(config_df["standardized_value"], hive_table_df["activity"]).alias("activity"),
+    hive_table_df["workflow_id"],
+    hive_table_df["activity_status"],
+    hive_table_df["activity_completion_time"],
+    hive_table_df["activity_parent"],
+    hive_table_df["activity_out"]
+)
 
 # Function to dynamically generate schema for an activity
 def generate_schema(fields):
@@ -35,7 +52,7 @@ extracted_dfs = []
 
 for activity, fields in activity_fields.items():
     # Filter rows for the current activity
-    activity_df = hive_table_df.filter(col("activity") == activity)
+    activity_df = standardized_df.filter(col("activity") == activity)
     
     # Generate schema for the current activity
     schema = generate_schema(fields)
@@ -65,8 +82,8 @@ pivot_df = combined_df.groupBy("workflow_id").pivot("activity").agg(
     *[expr(f"first({activity}_status)").alias(f"{activity}_status") for activity in activity_fields.keys()],
     *[expr(f"first({activity}_completion_time)").alias(f"{activity}_completion_time") for activity in activity_fields.keys()],
     *[expr(f"first({activity}_parent)").alias(f"{activity}_parent") for activity in activity_fields.keys()],
-    *[expr(f"first({activity}_{field})").alias(f"{activity}_{field}") 
-      for activity, fields in activity_fields.items() 
+    *[expr(f"first({activity}_{field})").alias(f"{activity}_{field}")
+      for activity, fields in activity_fields.items()
       for field in fields]
 )
 
